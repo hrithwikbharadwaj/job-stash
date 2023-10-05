@@ -24,7 +24,6 @@ export class Scheduler {
       retryCount: options?.retryCount || Scheduler.options.retryCount
     };
     Scheduler.initialized = true
-    console.log("Initialised");
   }
 
   public static async getAllActiveJobsFromDB() {
@@ -80,6 +79,9 @@ export class Scheduler {
   }
 
   public static async rescheduleJobs(callback: CallableFunction) {
+    if (!Scheduler.initialized) {
+      throw new Error("Scheduler not Initialised");
+    }
     const jobs = await Scheduler.getAllActiveJobsFromDB();
     jobs.forEach((job) => {
       const { jobId, dateToRunOn } = job;
@@ -126,7 +128,12 @@ export class Scheduler {
           await Scheduler.jobsCollection.deleteOne({ jobId });
         }
         catch (error) {
-          await Scheduler.handleRetries(jobId, dateToRunOn, callback, JSON.stringify(error));
+          const errorInfo = {
+            message: error.message,
+            stack: error.stack,
+            code: error.code
+          };
+          await Scheduler.handleRetries(jobId, dateToRunOn, callback, JSON.stringify(errorInfo));
         }
       }
     }
@@ -137,7 +144,6 @@ export class Scheduler {
     const job = new Job(jobId);
     const callbackWithLock = Scheduler.prepareCallbackWithlock(jobId, dateToRunOn, callback);
     const retryWindowInMs = Scheduler.options.retryWindowInSeconds * 1000;
-    console.log(retryWindowInMs);
     job.scheduleJob(callbackWithLock, retryWindowInMs, Scheduler.scheduledJobs);
   }
 
@@ -148,27 +154,23 @@ export class Scheduler {
         {
           $set: {
             retryCount: { $add: ["$retryCount", 1] },// Increment retryCount by 1
-            isLocked: false // unlock the document
-
-          },
-        },
-        {
-          $set: {
-            isActive: { $cond: [{ $gt: ["$retryCount", Scheduler.options.retryCount] }, false, "$isActive"] }
-            // Set isActive to false if retryCount > given default count
-          },
-        },
-        {
-          $set: {
+            isLocked: false, // unlock the document
             errorMessages: {
               $cond: {
                 if: { $isArray: "$errorMessages" },
                 then: { $concatArrays: ["$errorMessages", [error]] },
                 else: [error]
               }
-            },
-          }
-        } // store errorMessages
+            }, // store error messages to keep track of what went wrong
+
+          },
+        },
+        {
+          $set: {
+            isActive: { $cond: [{ $gt: ["$retryCount", Scheduler.options.retryCount] }, false, "$isActive"] }
+            // Set isActive to false after incrementing retryCount and if retryCount > given default count
+          },
+        },
       ]);
   }
 
@@ -179,7 +181,8 @@ export class Scheduler {
         jobId,
         dateToRunOn,
         isLocked: false,
-        isActive: true
+        isActive: true,
+        retryCount: 0
       });
     }
     catch (error) {
