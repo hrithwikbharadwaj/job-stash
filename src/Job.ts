@@ -1,8 +1,7 @@
 const crypto = require("crypto");
 import { ScheduledJobs } from "../src/types/types";
 export class Job {
-  MAX_TIME = 2000;
-
+  MAX_TIME = 0x7FFFFFFF; // setTimeout Limit is 24.8 days
 
   private jobId;
 
