@@ -1,0 +1,42 @@
+{
+  "name": "job-stash",
+  "version": "1.0.0",
+  "description": "Date based scheduler for Node.js that can persist jobs",
+  "main": "index.js",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build-dist": "tsc && cpx \"src/*.config.json\" \"dist/src\" && cpx \"package.json\" \"dist\" && cpx \".npmignore\" \"dist\"",
+    "publish-dist": "cd dist && npm publish && cd ..",
+    "build-publish": "npm run build-dist && npm run publish-dist"
+  },
+  "keywords": [
+    "schedule",
+    "in-memory",
+    "persistant",
+    "mongodb",
+    "date",
+    "scheduler",
+    "node scheduler"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/hrithwikbharadwaj/job-stash"
+  },
+  "author": {
+    "name": "Hrithwik Bharadwaj",
+    "email": "hrithwik009@gmail.com",
+    "url": "https://hrithwik.dev"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "mongodb": "^6.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.2",
+    "cpx": "^1.5.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2"
+  }
+}
