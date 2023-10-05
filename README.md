@@ -115,12 +115,12 @@ await Scheduler.rescheduleJobs(decideCallback)
 
 (I can even reuse the same function while scheduling the job)
 
-```jsx
+```js
 async function decideCallback(job) {
   const { jobId, operation, activityType } = job;
   if (operation === "gradeZero" && activityType === "quiz") {
     await gradeZero(jobId);
-		await createQuizReport(jobId);
+    await createQuizReport(jobId);
   }
   if (operation === "gradeZero") {
     await gradeZero(jobId);
@@ -134,3 +134,9 @@ while scheduling I had passed operation
 and activityType as jobMetadata. You can send any metadata and add
 conditions like this in your callbacks
 */
+```
+### Common Errors Thrown by the package
+
+- **JobId must be unique** - When you schedule a job with a jobId that's already present.
+- **Scheduler not Initialised -** When you try to use Scheduler Methods before ```Scheduler.init()```
+- **callback is not a function -** When your callback function is not a function
