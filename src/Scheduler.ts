@@ -153,7 +153,12 @@ export class Scheduler {
       [
         {
           $set: {
-            retryCount: { $add: ["$retryCount", 1] },// Increment retryCount by 1
+            retriedCount: {
+              $add: [
+                { $ifNull: ["$retriedCount", 0] }, // If the field doesn't exist, treat it as 0
+                1 // Increment retriedCount by 1
+              ]
+            },
             isLocked: false, // unlock the document
             errorMessages: {
               $cond: {
@@ -167,7 +172,7 @@ export class Scheduler {
         },
         {
           $set: {
-            isActive: { $cond: [{ $gt: ["$retryCount", Scheduler.options.retryCount] }, false, "$isActive"] }
+            isActive: { $cond: [{ $gt: ["$retriedCount", Scheduler.options.retryCount] }, false, "$isActive"] }
             // Set isActive to false after incrementing retryCount and if retryCount > given default count
           },
         },
@@ -181,8 +186,7 @@ export class Scheduler {
         jobId,
         dateToRunOn,
         isLocked: false,
-        isActive: true,
-        retryCount: 0
+        isActive: true
       });
     }
     catch (error) {
