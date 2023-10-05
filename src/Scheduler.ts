@@ -50,7 +50,7 @@ export class Scheduler {
     await Scheduler.jobsCollection.createIndexes([{ key: { jobId: 1 }, unique: true }]);
   }
 
-  public static scheduleJob(callback: CallableFunction, dateToRunOn: Date, jobId?: string, metadata?: JobMetaData) {
+  public static async scheduleJob(callback: CallableFunction, dateToRunOn: Date, jobId?: string, metadata?: JobMetaData) {
     if (!Scheduler.initialized) {
       throw new Error("Scheduler not Initialised");
     }
@@ -58,7 +58,7 @@ export class Scheduler {
       throw new Error("callback is not a function");
     }
     const job = new Job(jobId);
-    Scheduler.storeJobInDB(job.getJobId(), dateToRunOn, metadata);
+    await Scheduler.storeJobInDB(job.getJobId(), dateToRunOn, metadata);
     const callbackWithLock = Scheduler.prepareCallbackWithlock(job.getJobId(), dateToRunOn, callback);
     const timeRemaining = new Date(dateToRunOn).getTime() - new Date().getTime();
     job.scheduleJob(callbackWithLock, timeRemaining, Scheduler.scheduledJobs);
