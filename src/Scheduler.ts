@@ -14,14 +14,17 @@ export class Scheduler {
 
   private static options: SchedulerOptions = {
     retryWindowInSeconds: 3600,
-    retryCount: 3
+    retryCount: 3,
+    useLock: false
   };
 
   public static async init(config: MongoOptions | DatabaseOptions, options?: Partial<SchedulerOptions>) {
     await Scheduler.initDB(config);
+    const { retryCount, retryWindowInSeconds, useLock } = options || {};
     Scheduler.options = {
-      retryWindowInSeconds: options?.retryWindowInSeconds || Scheduler.options.retryWindowInSeconds,
-      retryCount: options?.retryCount || Scheduler.options.retryCount
+      retryWindowInSeconds: retryWindowInSeconds || Scheduler.options.retryWindowInSeconds,
+      retryCount: retryCount || Scheduler.options.retryCount,
+      useLock: useLock || Scheduler.options.useLock
     };
     Scheduler.initialized = true
   }
@@ -58,9 +61,9 @@ export class Scheduler {
     }
     const job = new Job(jobId);
     await Scheduler.storeJobInDB(job.getJobId(), dateToRunOn, metadata);
-    const callbackWithLock = Scheduler.prepareCallbackWithlock(job.getJobId(), dateToRunOn, callback);
+    const wrappedCallback = Scheduler.wrapCallback(job.getJobId(), dateToRunOn, callback);
     const timeRemaining = new Date(dateToRunOn).getTime() - new Date().getTime();
-    job.scheduleJob(callbackWithLock, timeRemaining, Scheduler.scheduledJobs);
+    job.scheduleJob(wrappedCallback, timeRemaining, Scheduler.scheduledJobs);
     return job;
   }
 
@@ -108,8 +111,8 @@ export class Scheduler {
       const id = this.scheduledJobs[jobId];
       clearTimeout(id);
     }
-    delete this.scheduledJobs.jobId;
     const jobIdToDelete = jobId instanceof Job ? jobId.getJobId() : jobId;
+    delete this.scheduledJobs.jobIdToDelete;
     await Scheduler.deleteJobFromDB(jobIdToDelete);
   }
 
@@ -117,36 +120,65 @@ export class Scheduler {
     await Scheduler.jobsCollection.deleteOne({ jobId });
   }
 
+  private static async acquireLock(jobId: string, dateToRunOn: Date) {
+    const result = await Scheduler.jobsCollection.updateOne({ jobId, isActive: true, dateToRunOn },
+      { $set: { isLocked: true } }
+    );
+    return result.matchedCount && result.modifiedCount;
+  }
+
   private static prepareCallbackWithlock(jobId: string, dateToRunOn: Date, callback: CallableFunction) {
     return async () => {
-      const result = await Scheduler.jobsCollection.updateOne({ jobId, isActive: true, dateToRunOn },
-        { $set: { isLocked: true } }
-      );
-      if (result.matchedCount && result.modifiedCount) {
-        try {
+      try {
+        const lockAcquired = await Scheduler.acquireLock(jobId, dateToRunOn);
+        if (lockAcquired) {
           await callback();
           await Scheduler.jobsCollection.deleteOne({ jobId });
         }
-        catch (error) {
-          const errorInfo = {
-            message: error.message,
-            stack: error.stack,
-            code: error.code
-          };
-          await Scheduler.handleRetries(jobId, dateToRunOn, callback, JSON.stringify(errorInfo));
-        }
+      }
+      catch (error) {
+        const errorInfo = {
+          message: error.message,
+          stack: error.stack,
+          code: error.code
+        };
+        await Scheduler.handleRetries(jobId, dateToRunOn, callback, JSON.stringify(errorInfo));
       }
     }
   }
 
+  private static prepareCallback(jobId: string, dateToRunOn: Date, callback: CallableFunction) {
+    return async () => {
+      try {
+        await callback();
+        await Scheduler.jobsCollection.deleteOne({ jobId });
+      }
+      catch (error) {
+        const errorInfo = {
+          message: error.message,
+          stack: error.stack,
+          code: error.code
+        };
+        await Scheduler.handleRetries(jobId, dateToRunOn, callback, JSON.stringify(errorInfo));
+      }
+    }
+  }
+
+
   private static async handleRetries(jobId: string, dateToRunOn: Date, callback: CallableFunction, error: string) {
     await Scheduler.updateRetryThresholdInDB(jobId, error);
     const job = new Job(jobId);
-    const callbackWithLock = Scheduler.prepareCallbackWithlock(jobId, dateToRunOn, callback);
     const retryWindowInMs = Scheduler.options.retryWindowInSeconds * 1000;
-    job.scheduleJob(callbackWithLock, retryWindowInMs, Scheduler.scheduledJobs);
+    const wrappedCallback = Scheduler.wrapCallback(jobId, dateToRunOn, callback);
+    job.scheduleJob(wrappedCallback, retryWindowInMs, Scheduler.scheduledJobs);
   }
 
+  private static wrapCallback(jobId: string, dateToRunOn: Date, callback: CallableFunction) {
+    if (Scheduler.options.useLock) {
+      return Scheduler.prepareCallbackWithlock(jobId, dateToRunOn, callback);
+    }
+    return Scheduler.prepareCallback(jobId, dateToRunOn, callback);
+  }
 
   private static async updateRetryThresholdInDB(jobId: string, error: string) {
     await Scheduler.jobsCollection.updateOne({ jobId },

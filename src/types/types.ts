@@ -6,7 +6,8 @@ export type JobMetaData = Record<string, any>
 
 export type SchedulerOptions = {
   retryWindowInSeconds: number,
-  retryCount: number
+  retryCount: number,
+  useLock: boolean
 }
 
 export type MongoOptions = {

@@ -11,14 +11,11 @@ export class Job {
       return;
     }
     this.jobId = jobId;
-    // this.idMap
   }
 
   public cancelJob(scheduledJobs: ScheduledJobs) {
     const timeoutId = this.getTimeoutId(scheduledJobs, this.jobId);
     clearTimeout(timeoutId);
-    //  scheduledJobs[this.jobId] = undefined; do this outside
-    // remove it from DB
   }
 
   private getTimeoutId(scheduledJobs: ScheduledJobs, jobId: string) {
