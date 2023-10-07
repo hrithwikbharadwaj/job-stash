@@ -1,6 +1,6 @@
 import { Db, Collection, MongoClient } from "mongodb";
 import { Job } from "./Job";
-import { ScheduledJobs, MongoOptions, DatabaseOptions, SchedulerOptions, JobMetaData } from "./types/types";
+import { ScheduledJobs, MongoOptions, DatabaseOptions, SchedulerOptions, JobMetaData, RetriedCount } from "./types/types";
 
 export class Scheduler {
 
@@ -18,13 +18,16 @@ export class Scheduler {
     useLock: false
   };
 
+  private static retriedCount: RetriedCount = {};
+
   public static async init(config: MongoOptions | DatabaseOptions, options?: Partial<SchedulerOptions>) {
     await Scheduler.initDB(config);
     const { retryCount, retryWindowInSeconds, useLock } = options || {};
     Scheduler.options = {
-      retryWindowInSeconds: retryWindowInSeconds || Scheduler.options.retryWindowInSeconds,
-      retryCount: retryCount || Scheduler.options.retryCount,
-      useLock: useLock || Scheduler.options.useLock
+      ...Scheduler.options,
+      ...(useLock && { useLock }),
+      ...(retryCount !== undefined && { retryCount }),
+      ...(retryWindowInSeconds !== undefined && { retryWindowInSeconds }),
     };
     Scheduler.initialized = true
   }
@@ -167,10 +170,22 @@ export class Scheduler {
 
   private static async handleRetries(jobId: string, dateToRunOn: Date, callback: CallableFunction, error: string) {
     await Scheduler.updateRetryThresholdInDB(jobId, error);
+    const retryExceeded = Scheduler.checkIfRetryExceeded(jobId);
+    if (retryExceeded) {
+      return;
+    }
     const job = new Job(jobId);
     const retryWindowInMs = Scheduler.options.retryWindowInSeconds * 1000;
     const wrappedCallback = Scheduler.wrapCallback(jobId, dateToRunOn, callback);
     job.scheduleJob(wrappedCallback, retryWindowInMs, Scheduler.scheduledJobs);
+  }
+
+  private static checkIfRetryExceeded(jobId: string) {
+    if (!this.retriedCount[jobId]) {
+      this.retriedCount[jobId] = 0;
+    }
+    this.retriedCount[jobId]++;
+    return this.retriedCount[jobId] > Scheduler.options.retryCount;
   }
 
   private static wrapCallback(jobId: string, dateToRunOn: Date, callback: CallableFunction) {
@@ -185,10 +200,16 @@ export class Scheduler {
       [
         {
           $set: {
+            errorCount: {
+              $add: [
+                { $ifNull: ["$errorCount", 0] }, // If the field doesn't exist, treat it as 0
+                1 // Increment retriedCount by 1
+              ]
+            },
             retriedCount: {
               $add: [
-                { $ifNull: ["$retriedCount", 0] }, // If the field doesn't exist, treat it as 0
-                1 // Increment retriedCount by 1
+                { $ifNull: ["$retriedCount", -1] },
+                1
               ]
             },
             isLocked: false, // unlock the document
@@ -204,8 +225,8 @@ export class Scheduler {
         },
         {
           $set: {
-            isActive: { $cond: [{ $gt: ["$retriedCount", Scheduler.options.retryCount] }, false, "$isActive"] }
-            // Set isActive to false after incrementing retryCount and if retryCount > given default count
+            isActive: { $cond: [{ $gte: ["$retriedCount", Scheduler.options.retryCount] }, false, "$isActive"] }
+            // Set isActive to false after incrementing retriedCount and if retriedCount >= given default retryCount
           },
         },
       ]);

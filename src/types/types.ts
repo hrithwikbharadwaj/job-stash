@@ -10,6 +10,8 @@ export type SchedulerOptions = {
   useLock: boolean
 }
 
+export type RetriedCount = Record<string, number>
+
 export type MongoOptions = {
   db?: {
     collection?: string;
