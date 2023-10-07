@@ -36,7 +36,7 @@ export class Job {
     } else {
       id = setTimeout(() => {
         callback();
-        scheduledJobs[this.jobId] = undefined;
+        delete scheduledJobs[this.jobId];
       }, timeRemaining);
     }
     scheduledJobs[this.jobId] = id;

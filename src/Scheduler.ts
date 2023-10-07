@@ -97,10 +97,10 @@ export class Scheduler {
     if (dateToRunOn) {
       const id = this.scheduledJobs[jobId];
       clearTimeout(id);
-      delete this.scheduledJobs.jobId;
+      delete this.scheduledJobs[jobId];
     }
     Scheduler.scheduleJobInMemory(callback, dateToRunOn, jobId);
-    await Scheduler.jobsCollection.updateOne({ jobId }, { $set: { dateToRunOn, ...metadata } })
+    await Scheduler.jobsCollection.updateOne({ jobId }, { $set: { dateToRunOn, ...metadata, updatedAt: new Date() } })
   }
 
   public static async cancelJob(jobId: string | Job) {
@@ -112,7 +112,7 @@ export class Scheduler {
       clearTimeout(id);
     }
     const jobIdToDelete = jobId instanceof Job ? jobId.getJobId() : jobId;
-    delete this.scheduledJobs.jobIdToDelete;
+    delete this.scheduledJobs[jobIdToDelete];
     await Scheduler.deleteJobFromDB(jobIdToDelete);
   }
 
@@ -136,7 +136,7 @@ export class Scheduler {
           await Scheduler.jobsCollection.deleteOne({ jobId });
         }
       }
-      catch (error) {
+      catch (error: any) {
         const errorInfo = {
           message: error.message,
           stack: error.stack,
@@ -153,7 +153,7 @@ export class Scheduler {
         await callback();
         await Scheduler.jobsCollection.deleteOne({ jobId });
       }
-      catch (error) {
+      catch (error: any) {
         const errorInfo = {
           message: error.message,
           stack: error.stack,
@@ -199,7 +199,7 @@ export class Scheduler {
                 else: [error]
               }
             }, // store error messages to keep track of what went wrong
-
+            updatedAt: new Date()
           },
         },
         {
@@ -218,10 +218,11 @@ export class Scheduler {
         jobId,
         dateToRunOn,
         isLocked: false,
-        isActive: true
+        isActive: true,
+        createdAt: new Date()
       });
     }
-    catch (error) {
+    catch (error: any) {
       if (error.code === 11000) {
         throw new Error("JobId must be unique");
       }
