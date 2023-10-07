@@ -8,7 +8,7 @@ Job Stash is a date based scheduler for Node.js. It allows you to schedule jobs 
     
 * Abstracts DB Implementation - Give it a DB Address(URI) and it forms a connection, Give it a MongoDBClient and it reuses the connection.
     
-* It's Atomic - If you have multiple machines running , only one of them will execute your job.
+* It's Atomic - If you have multiple machines running , only one of them will execute your job if you enable `useLock` while initialising.
     
 * Has Inbuilt Retry Mechanism, if something went wrong while executing the job, they are retried after a retry window(configurable).
     
