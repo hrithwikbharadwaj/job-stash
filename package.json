@@ -1,13 +1,13 @@
 {
   "name": "job-stash",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Date based scheduler for Node.js that can persist jobs",
   "main": "index.js",
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build-dist": "tsc && cpx \"src/*.config.json\" \"dist/src\" && cpx \"package.json\" \"dist\" && cpx \".npmignore\" \"dist\"",
+    "build-dist": "tsc && cpx \"src/*.config.json\" \"dist/src\" && cpx \"package.json\" \"dist\" && cpx \".npmignore\" \"dist\" && cpx \"README.md\" \"dist\"",
     "publish-dist": "cd dist && npm publish && cd ..",
     "build-publish": "npm run build-dist && npm run publish-dist"
   },
