@@ -64,13 +64,13 @@ export class Scheduler {
     }
     const job = new Job(jobId);
     await Scheduler.storeJobInDB(job.getJobId(), dateToRunOn, metadata);
-    const wrappedCallback = Scheduler.wrapCallback(job.getJobId(), dateToRunOn, callback);
+    const wrappedCallback = Scheduler.wrapCallback(job.getJobId(), dateToRunOn, callback, metadata);
     const timeRemaining = new Date(dateToRunOn).getTime() - new Date().getTime();
     job.scheduleJob(wrappedCallback, timeRemaining, Scheduler.scheduledJobs);
     return job;
   }
 
-  public static scheduleJobInMemory(callback: CallableFunction, dateToRunOn: Date, jobId: string) {
+  public static scheduleJobInMemory(callback: CallableFunction, dateToRunOn: Date, jobId: string, metadata: unknown) {
     if (!Scheduler.initialized) {
       throw new Error("Scheduler not Initialised");
     }
@@ -78,9 +78,9 @@ export class Scheduler {
       throw new Error("callback is not a function");
     }
     const job = new Job(jobId);
-    const callbackWithLock = Scheduler.prepareCallbackWithlock(job.getJobId(), dateToRunOn, callback);
+    const wrappedCallback = Scheduler.wrapCallback(jobId, dateToRunOn, callback, metadata);
     const timeRemaining = new Date(dateToRunOn).getTime() - new Date().getTime();
-    job.scheduleJob(callbackWithLock, timeRemaining, Scheduler.scheduledJobs);
+    job.scheduleJob(wrappedCallback, timeRemaining, Scheduler.scheduledJobs);
     return job;
   }
 
@@ -90,9 +90,8 @@ export class Scheduler {
     }
     const jobs = await Scheduler.getAllActiveJobsFromDB();
     jobs.forEach((job) => {
-      const { jobId, dateToRunOn } = job;
-      const scheduledJobCallBack = () => callback(job);
-      Scheduler.scheduleJobInMemory(scheduledJobCallBack, dateToRunOn, jobId);
+      const { jobId, dateToRunOn, ...metadata } = job;
+      Scheduler.scheduleJobInMemory(callback, dateToRunOn, jobId, metadata);
     });
   }
 
@@ -102,7 +101,7 @@ export class Scheduler {
       clearTimeout(id);
       delete this.scheduledJobs[jobId];
     }
-    Scheduler.scheduleJobInMemory(callback, dateToRunOn, jobId);
+    Scheduler.scheduleJobInMemory(callback, dateToRunOn, jobId, metadata);
     await Scheduler.jobsCollection.updateOne({ jobId }, { $set: { dateToRunOn, ...metadata, updatedAt: new Date() } })
   }
 
@@ -130,12 +129,12 @@ export class Scheduler {
     return result.matchedCount && result.modifiedCount;
   }
 
-  private static prepareCallbackWithlock(jobId: string, dateToRunOn: Date, callback: CallableFunction) {
+  private static prepareCallbackWithlock(jobId: string, dateToRunOn: Date, callback: CallableFunction, metadata: object) {
     return async () => {
       try {
         const lockAcquired = await Scheduler.acquireLock(jobId, dateToRunOn);
         if (lockAcquired) {
-          await callback();
+          await callback({ jobId, dateToRunOn, ...metadata });
           await Scheduler.jobsCollection.deleteOne({ jobId });
         }
       }
@@ -145,15 +144,15 @@ export class Scheduler {
           stack: error.stack,
           code: error.code
         };
-        await Scheduler.handleRetries(jobId, dateToRunOn, callback, JSON.stringify(errorInfo));
+        await Scheduler.handleRetries(jobId, dateToRunOn, callback, JSON.stringify(errorInfo), metadata);
       }
     }
   }
 
-  private static prepareCallback(jobId: string, dateToRunOn: Date, callback: CallableFunction) {
+  private static prepareCallback(jobId: string, dateToRunOn: Date, callback: CallableFunction, metadata: object) {
     return async () => {
       try {
-        await callback();
+        await callback({ jobId, dateToRunOn, ...metadata });
         await Scheduler.jobsCollection.deleteOne({ jobId });
       }
       catch (error: any) {
@@ -162,13 +161,13 @@ export class Scheduler {
           stack: error.stack,
           code: error.code
         };
-        await Scheduler.handleRetries(jobId, dateToRunOn, callback, JSON.stringify(errorInfo));
+        await Scheduler.handleRetries(jobId, dateToRunOn, callback, JSON.stringify(errorInfo), metadata);
       }
     }
   }
 
 
-  private static async handleRetries(jobId: string, dateToRunOn: Date, callback: CallableFunction, error: string) {
+  private static async handleRetries(jobId: string, dateToRunOn: Date, callback: CallableFunction, error: string, metadata: unknown) {
     await Scheduler.updateRetryThresholdInDB(jobId, error);
     const retryExceeded = Scheduler.checkIfRetryExceeded(jobId);
     if (retryExceeded) {
@@ -176,7 +175,7 @@ export class Scheduler {
     }
     const job = new Job(jobId);
     const retryWindowInMs = Scheduler.options.retryWindowInSeconds * 1000;
-    const wrappedCallback = Scheduler.wrapCallback(jobId, dateToRunOn, callback);
+    const wrappedCallback = Scheduler.wrapCallback(jobId, dateToRunOn, callback, metadata);
     job.scheduleJob(wrappedCallback, retryWindowInMs, Scheduler.scheduledJobs);
   }
 
@@ -188,11 +187,11 @@ export class Scheduler {
     return this.retriedCount[jobId] > Scheduler.options.retryCount;
   }
 
-  private static wrapCallback(jobId: string, dateToRunOn: Date, callback: CallableFunction) {
+  private static wrapCallback(jobId: string, dateToRunOn: Date, callback: CallableFunction, metadata: any) {
     if (Scheduler.options.useLock) {
-      return Scheduler.prepareCallbackWithlock(jobId, dateToRunOn, callback);
+      return Scheduler.prepareCallbackWithlock(jobId, dateToRunOn, callback, metadata);
     }
-    return Scheduler.prepareCallback(jobId, dateToRunOn, callback);
+    return Scheduler.prepareCallback(jobId, dateToRunOn, callback, metadata);
   }
 
   private static async updateRetryThresholdInDB(jobId: string, error: string) {
