@@ -118,6 +118,14 @@ export class Scheduler {
     await Scheduler.deleteJobFromDB(jobIdToDelete);
   }
 
+  private static cancelJobFromMemory(jobId: string) {
+    const id = this.scheduledJobs[jobId];
+    if (id) {
+      clearTimeout(id);
+      delete this.scheduledJobs[jobId];
+    }
+  }
+
   private static async deleteJobFromDB(jobId: string) {
     await Scheduler.jobsCollection.deleteOne({ jobId });
   }
@@ -136,7 +144,10 @@ export class Scheduler {
         if (lockAcquired) {
           await callback({ jobId, dateToRunOn, ...metadata });
           await Scheduler.jobsCollection.deleteOne({ jobId });
+          this.retriedCount[jobId] && delete this.retriedCount[jobId];
+          return;
         }
+        this.cancelJobFromMemory(jobId);
       }
       catch (error: any) {
         const errorInfo = {
@@ -144,6 +155,7 @@ export class Scheduler {
           stack: error.stack,
           code: error.code
         };
+        this.cancelJobFromMemory(jobId);
         await Scheduler.handleRetries(jobId, dateToRunOn, callback, JSON.stringify(errorInfo), metadata);
       }
     }
@@ -154,6 +166,7 @@ export class Scheduler {
       try {
         await callback({ jobId, dateToRunOn, ...metadata });
         await Scheduler.jobsCollection.deleteOne({ jobId });
+        this.retriedCount[jobId] && delete this.retriedCount[jobId];
       }
       catch (error: any) {
         const errorInfo = {
@@ -161,6 +174,7 @@ export class Scheduler {
           stack: error.stack,
           code: error.code
         };
+        this.cancelJobFromMemory(jobId);
         await Scheduler.handleRetries(jobId, dateToRunOn, callback, JSON.stringify(errorInfo), metadata);
       }
     }
