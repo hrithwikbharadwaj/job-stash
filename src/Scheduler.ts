@@ -102,7 +102,22 @@ export class Scheduler {
       delete this.scheduledJobs[jobId];
     }
     Scheduler.scheduleJobInMemory(callback, dateToRunOn, jobId, metadata);
-    await Scheduler.jobsCollection.updateOne({ jobId }, { $set: { dateToRunOn, ...metadata, updatedAt: new Date() } }, { upsert: true });
+    await Scheduler.jobsCollection.updateOne(
+      { jobId },
+      {
+        $setOnInsert: {
+          isLocked: false,
+          isActive: true,
+          createdAt: new Date()
+        },
+        $set: {
+          ...metadata,
+          dateToRunOn,
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
   }
 
   public static async cancelJob(jobId: string | Job) {
